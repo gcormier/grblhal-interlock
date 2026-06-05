@@ -37,7 +37,7 @@ Port values entered in settings are the **macro `Pxxx` aux-port numbers**, exact
 - Output ports: the `Pn` in `M62 Pn` / `M63 Pn`
 - Input ports: the `Pn` in `M66 Pn`
 
-Input and output `P`-spaces are **independent** (output `P0` and input `P0` are different pins), which is why each forward slot has its own direction setting. On this workspace's board these map as documented in [`IO.md`](../IO.md); for example output `P0` = Spindle Clamp, `P1` = Spindle Release.
+Input and output `P`-spaces are **independent** (output `P0` and input `P0` are different pins), which is why each forward slot has its own direction setting.
 
 > **Limitation:** ports *claimed* by another plugin are compacted out of the macro `Pxxx` numbering, so a claimed port cannot be monitored by macro number. The ATC use cases (drawbar sensor input plus release output) are unclaimed macro ports, so this is not a problem in practice.
 
@@ -62,7 +62,7 @@ A slot with its port set to `-1` is ignored. Restore defaults (`$RST=$`) disable
 
 ### Example: ATC clamp/release safety
 
-The drawbar is driven by two outputs (see [`IO.md`](../IO.md)): **Spindle Clamp** on output `P0`
+The drawbar is driven by two outputs : **Spindle Clamp** on output `P0`
 and **Spindle Release** on output `P1`, both active high. We want a two-way interlock:
 
 - **Forward**: don't let the spindle start while *either* clamp or release is asserted, **or**
