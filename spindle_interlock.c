@@ -91,6 +91,7 @@ static char il_inv_max[4];
 // (where M62/M63 synced outputs fire). Updated in on_spindle_programmed (task context).
 static volatile bool spindle_active = false;
 static volatile bool output_blocked = false;   // set in ISR-context wrapper, reported from realtime
+static volatile uint8_t blocked_port = IOPORT_UNASSIGNED;   // guarded port that fired the inverse veto
 
 // ── chained callbacks / wrapped pointers ───────────────────────────────────────
 
@@ -103,11 +104,16 @@ static digital_out_ptr              prev_digital_out            = NULL;
 
 // ── forward interlock ──────────────────────────────────────────────────────────
 
-// Read each enabled forward slot's live hardware state; return true if any is active.
+// Read each enabled forward slot's live hardware state. Returns the number of slots found
+// active and, if buf is non-NULL, appends a human-readable description of every active slot
+// (e.g. "FWD0 IN P3 high, FWD2 OUT P5 low") so the operator can see exactly what tripped.
 // Unreadable ports (no driver get_value, or read error) are skipped (fail-open) —
 // a misconfigured guard must not permanently brick the spindle.
-static bool any_fwd_active (void)
+static uint_fast8_t describe_fwd_active (char *buf, size_t buflen)
 {
+    uint_fast8_t n_active = 0;
+    size_t len = 0;
+
     for (uint_fast8_t i = 0; i < IL_N; i++) {
 
         uint8_t port = cfg.fwd_port[i];
@@ -124,11 +130,17 @@ static bool any_fwd_active (void)
             continue;
 
         bool high = v >= 0.5f;
-        if (high == (cfg.fwd_level[i] != 0))    // active-high when level==1, active-low when level==0
-            return true;
+        if (high == (cfg.fwd_level[i] != 0)) {  // active-high when level==1, active-low when level==0
+            if (buf && len < buflen)
+                len += snprintf(buf + len, buflen - len, "%sFWD%u %s P%u %s",
+                                n_active ? ", " : "", (unsigned)i,
+                                cfg.fwd_dir[i] ? "OUT" : "IN", (unsigned)port,
+                                high ? "high" : "low");
+            n_active++;
+        }
     }
 
-    return false;
+    return n_active;
 }
 
 // Trigger a latching E-stop when an interlock fires. ISR-safe: mc_reset() is ISR_CODE and
@@ -153,8 +165,11 @@ static void trigger_interlock_estop (void)
 // running while the hardware stays off.
 static void onSpindleSetState (spindle_ptrs_t *spindle, spindle_state_t state, float rpm)
 {
-    if (state.on && any_fwd_active()) {
-        report_message("Spindle start blocked by interlock", Message_Warning);
+    char detail[120];
+    if (state.on && describe_fwd_active(detail, sizeof(detail))) {
+        char msg[160];
+        snprintf(msg, sizeof(msg), "Spindle start blocked by interlock: %s", detail);
+        report_message(msg, Message_Warning);
         trigger_interlock_estop();
         return;     // do not chain — spindle stays off
     }
@@ -195,6 +210,7 @@ static bool is_guarded (uint8_t port)
 static void onDigitalOut (uint8_t port, bool on)
 {
     if (spindle_active && is_guarded(port)) {
+        blocked_port = port;
         output_blocked = true;
         trigger_interlock_estop();
         return;     // suppress write
@@ -221,7 +237,10 @@ static void on_execute_realtime (sys_state_t state)
 
     if (output_blocked) {
         output_blocked = false;
-        report_message("Output blocked: spindle running", Message_Warning);
+        char msg[80];
+        snprintf(msg, sizeof(msg), "Output P%u blocked by interlock: spindle running",
+                 (unsigned)blocked_port);
+        report_message(msg, Message_Warning);
     }
 }
 
@@ -231,7 +250,7 @@ static void on_report_options (bool newopt)
         prev_on_report_options(newopt);
 
     if (!newopt)
-        report_plugin("Interlock", "0.5");
+        report_plugin("Interlock", "0.6");
 }
 
 // ── settings set/get ───────────────────────────────────────────────────────────

@@ -103,12 +103,14 @@ spinning. Any violation raises an E-stop.
 
 Both interlocks raise a latching **E-stop**: the machine enters an alarm state and the spindle, coolant, and steppers are killed. You will need to reset and unlock (and re-home if required) before continuing, exactly as with the physical e-stop button.
 
-A descriptive warning is also pushed to the sender's console:
+A descriptive warning is also pushed to the sender's console, naming the exact condition(s) that tripped:
 
 ```
-[MSG:Spindle start blocked by interlock]
-[MSG:Output blocked: spindle running]
+[MSG:Spindle start blocked by interlock: FWD0 IN P0 high, FWD2 OUT P5 low]
+[MSG:Output P5 blocked by interlock: spindle running]
 ```
+
+For the forward interlock, **every** active monitored slot is listed (not just the first), each showing the slot number, direction (`IN`/`OUT`), the macro `Pxxx` number, and the live level that matched its configured active condition. For the inverse interlock, the message names the guarded output port that was written.
 
 The output-blocked message is deferred out of the stepper ISR, so it appears shortly after the blocked write rather than exactly at the instant of the block.
 
