@@ -88,7 +88,10 @@ static char il_inv_max[4];
 // ── runtime state ──────────────────────────────────────────────────────────────
 
 // spindle_active is the only spindle-state source safe to read from the stepper ISR
-// (where M62/M63 synced outputs fire). Updated in on_spindle_programmed (task context).
+// (where M62/M63 synced outputs fire). Set/cleared in on_spindle_programmed (task context)
+// and also cleared by the set_state wrapper whenever the spindle is commanded off or a
+// start is blocked: reset/E-stop turns the spindle off via set_state without calling
+// on_spindle_programmed, which would otherwise leave the inverse interlock armed.
 static volatile bool spindle_active = false;
 static volatile bool output_blocked = false;   // set in ISR-context wrapper, reported from realtime
 static volatile uint8_t blocked_port = IOPORT_UNASSIGNED;   // guarded port that fired the inverse veto
@@ -170,9 +173,13 @@ static void onSpindleSetState (spindle_ptrs_t *spindle, spindle_state_t state, f
         char msg[160];
         snprintf(msg, sizeof(msg), "Spindle start blocked by interlock: %s", detail);
         report_message(msg, Message_Warning);
+        spindle_active = false;     // on_spindle_programmed already flagged it running
         trigger_interlock_estop();
         return;     // do not chain — spindle stays off
     }
+
+    if (!state.on)
+        spindle_active = false;
 
     if (prev_set_state)
         prev_set_state(spindle, state, rpm);
