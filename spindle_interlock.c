@@ -108,7 +108,7 @@ static digital_out_ptr              prev_digital_out            = NULL;
 // ── forward interlock ──────────────────────────────────────────────────────────
 
 // Read each enabled forward slot's live hardware state. Returns the number of slots found
-// active and, if buf is non-NULL, appends a human-readable description of every active slot
+// active and appends a human-readable description of every active slot to buf
 // (e.g. "FWD0 IN P3 high, FWD2 OUT P5 low") so the operator can see exactly what tripped.
 // Unreadable ports (no driver get_value, or read error) are skipped (fail-open) —
 // a misconfigured guard must not permanently brick the spindle.
@@ -134,7 +134,7 @@ static uint_fast8_t describe_fwd_active (char *buf, size_t buflen)
 
         bool high = v >= 0.5f;
         if (high == (cfg.fwd_level[i] != 0)) {  // active-high when level==1, active-low when level==0
-            if (buf && len < buflen)
+            if (len < buflen)
                 len += snprintf(buf + len, buflen - len, "%sFWD%u %s P%u %s",
                                 n_active ? ", " : "", (unsigned)i,
                                 cfg.fwd_dir[i] ? "OUT" : "IN", (unsigned)port,
