@@ -20,6 +20,8 @@ Monitors any number of digital input or output ports. If **any** monitored port 
 
 The check happens **only at spindle start.** A port going active mid-cut does **not** stop a running spindle (this is V1 scope, no mid-cut feed-hold).
 
+> **Fail-open on unreadable ports:** a forward slot whose port cannot be read is **skipped**, not treated as active. This covers a port that no longer exists (e.g. after a board/map change), a port whose driver provides no readback, and a read that returns an error. No warning is emitted, and the spindle may start as if that slot were disabled. This is deliberate, so that a misconfigured guard cannot permanently lock out the spindle. Confirm each forward slot actually trips (e.g. assert the port and try `M3`) after configuring it, and after any driver or pin-map change.
+
 ### Inverse interlock: block output writes while spindle runs
 
 Guards specific **output** ports from being written while the spindle is running. If an `M62`/`M63`/`M64`/`M65` targets a guarded port while the spindle is on, the write is suppressed and an E-stop is raised.
@@ -171,8 +173,15 @@ lib_deps =
 ## Requirements
 
 - grblHAL core with ioports support (`IOPORTS_ENABLE`)
-- A single-spindle configuration (the forward veto assumes one spindle)
+- A single **enabled** spindle (`N_SYS_SPINDLE` = 1, the grblHAL default). See [Multiple spindles](#multiple-spindles).
 - Tested on STM32F4xx (SLBEXT); should work on any grblHAL driver with ioports and output readback
+
+### Multiple spindles
+
+The plugin tracks a single spindle: it wraps the `set_state` of whichever spindle is currently selected and keeps one "spindle running" flag.
+
+- **Several registered spindles, one enabled at a time** (`N_SPINDLE` > 1, `N_SYS_SPINDLE` = 1, switched with `M104` or `$395`): both interlocks follow the currently selected spindle. They apply to whichever spindle is active, not to a particular spindle, so the same forward monitors and guarded outputs are used for every spindle (e.g. a laser selected as the active spindle is also subject to the drawbar checks).
+- **Several spindles enabled at once** (`N_SYS_SPINDLE` > 1): **not supported.** The build fails with an `#error`, because the single saved `set_state` pointer would route one spindle's on/off commands to another spindle's driver, and one spindle stopping would disarm the inverse interlock while another is still running.
 
 ---
 

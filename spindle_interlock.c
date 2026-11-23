@@ -42,6 +42,13 @@
 
 #include "spindle_interlock.h"
 
+// Only one spindle may be enabled at a time: the set_state wrapper keeps a single saved
+// prev_set_state and a single spindle_active flag. With N_SYS_SPINDLE > 1 the wrapper
+// would chain M3/M4/M5 for one spindle to another spindle's driver.
+#if N_SYS_SPINDLE > 1
+#error "Spindle interlock supports a single enabled spindle only (N_SYS_SPINDLE must be 1)"
+#endif
+
 // ── compile-time config (overridable in my_machine.h) ──────────────────────────
 
 #ifndef SPINDLE_INTERLOCK_FWD_SLOTS
@@ -88,7 +95,10 @@ static char il_inv_max[4];
 // ── runtime state ──────────────────────────────────────────────────────────────
 
 // spindle_active is the only spindle-state source safe to read from the stepper ISR
-// (where M62/M63 synced outputs fire). Updated in on_spindle_programmed (task context).
+// (where M62/M63 synced outputs fire). Set/cleared in on_spindle_programmed (task context)
+// and also cleared by the set_state wrapper whenever the spindle is commanded off or a
+// start is blocked: reset/E-stop turns the spindle off via set_state without calling
+// on_spindle_programmed, which would otherwise leave the inverse interlock armed.
 static volatile bool spindle_active = false;
 static volatile bool output_blocked = false;   // set in ISR-context wrapper, reported from realtime
 static volatile uint8_t blocked_port = IOPORT_UNASSIGNED;   // guarded port that fired the inverse veto
@@ -105,7 +115,7 @@ static digital_out_ptr              prev_digital_out            = NULL;
 // ── forward interlock ──────────────────────────────────────────────────────────
 
 // Read each enabled forward slot's live hardware state. Returns the number of slots found
-// active and, if buf is non-NULL, appends a human-readable description of every active slot
+// active and appends a human-readable description of every active slot to buf
 // (e.g. "FWD0 IN P3 high, FWD2 OUT P5 low") so the operator can see exactly what tripped.
 // Unreadable ports (no driver get_value, or read error) are skipped (fail-open) —
 // a misconfigured guard must not permanently brick the spindle.
@@ -131,7 +141,7 @@ static uint_fast8_t describe_fwd_active (char *buf, size_t buflen)
 
         bool high = v >= 0.5f;
         if (high == (cfg.fwd_level[i] != 0)) {  // active-high when level==1, active-low when level==0
-            if (buf && len < buflen)
+            if (len < buflen)
                 len += snprintf(buf + len, buflen - len, "%sFWD%u %s P%u %s",
                                 n_active ? ", " : "", (unsigned)i,
                                 cfg.fwd_dir[i] ? "OUT" : "IN", (unsigned)port,
@@ -170,9 +180,13 @@ static void onSpindleSetState (spindle_ptrs_t *spindle, spindle_state_t state, f
         char msg[160];
         snprintf(msg, sizeof(msg), "Spindle start blocked by interlock: %s", detail);
         report_message(msg, Message_Warning);
+        spindle_active = false;     // on_spindle_programmed already flagged it running
         trigger_interlock_estop();
         return;     // do not chain — spindle stays off
     }
+
+    if (!state.on)
+        spindle_active = false;
 
     if (prev_set_state)
         prev_set_state(spindle, state, rpm);
@@ -180,7 +194,8 @@ static void onSpindleSetState (spindle_ptrs_t *spindle, spindle_state_t state, f
 
 // Hooked into grbl.on_spindle_select. The core calls this on a local copy of the
 // spindle struct and memcpy's it into the committed HAL afterward, so replacing
-// set_state here persists. Single-spindle assumption: one saved prev_set_state.
+// set_state here persists. Single-spindle assumption: one saved prev_set_state, replaced
+// whenever a (different) spindle is selected, so the wrapper follows the active spindle.
 static bool onSpindleSelect (spindle_ptrs_t *spindle)
 {
     if (spindle->set_state != onSpindleSetState) {
@@ -250,7 +265,7 @@ static void on_report_options (bool newopt)
         prev_on_report_options(newopt);
 
     if (!newopt)
-        report_plugin("Interlock", "0.6");
+        report_plugin("Interlock", "0.7");
 }
 
 // ── settings set/get ───────────────────────────────────────────────────────────
@@ -370,7 +385,9 @@ static void il_copy_max (char *dst, const char *src)
 static void il_build_settings (void)
 {
     // Forward port settings can target either direction — advertise the larger range.
-    io_port_cfg_t d_in, d_out;
+    // Zero-initialized: io_port_cfg_t has a const member (port_maxs), so leaving the
+    // objects default-initialized until ioports_cfg() fills them is flagged by Clang.
+    io_port_cfg_t d_in = {0}, d_out = {0};
     ioports_cfg(&d_in,  Port_Digital, Port_Input);
     ioports_cfg(&d_out, Port_Digital, Port_Output);
     // Copy port_maxs out of the stack-local cfg structs into static storage so the

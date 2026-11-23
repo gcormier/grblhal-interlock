@@ -1,0 +1,20 @@
+name: Plugin host tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plugin:
+    uses: grblHAL/Unit_tests/.github/workflows/reusable-tests.yml@master
+    with:
+      harness_repository: grblHAL/Unit_tests
+      harness_ref: master
+      suite: plugin_interlock
+      run_label: plugin_interlock
+      source_repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      source_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      core_ref: master
+      source_base_ref: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      source_base_repository: ${{ (github.event.pull_request.base.sha || github.event.before) && github.repository || '' }}
