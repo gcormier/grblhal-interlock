@@ -42,6 +42,13 @@
 
 #include "spindle_interlock.h"
 
+// Only one spindle may be enabled at a time: the set_state wrapper keeps a single saved
+// prev_set_state and a single spindle_active flag. With N_SYS_SPINDLE > 1 the wrapper
+// would chain M3/M4/M5 for one spindle to another spindle's driver.
+#if N_SYS_SPINDLE > 1
+#error "Spindle interlock supports a single enabled spindle only (N_SYS_SPINDLE must be 1)"
+#endif
+
 // ── compile-time config (overridable in my_machine.h) ──────────────────────────
 
 #ifndef SPINDLE_INTERLOCK_FWD_SLOTS
@@ -187,7 +194,8 @@ static void onSpindleSetState (spindle_ptrs_t *spindle, spindle_state_t state, f
 
 // Hooked into grbl.on_spindle_select. The core calls this on a local copy of the
 // spindle struct and memcpy's it into the committed HAL afterward, so replacing
-// set_state here persists. Single-spindle assumption: one saved prev_set_state.
+// set_state here persists. Single-spindle assumption: one saved prev_set_state, replaced
+// whenever a (different) spindle is selected, so the wrapper follows the active spindle.
 static bool onSpindleSelect (spindle_ptrs_t *spindle)
 {
     if (spindle->set_state != onSpindleSetState) {
