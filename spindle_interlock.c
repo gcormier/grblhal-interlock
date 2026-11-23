@@ -370,7 +370,9 @@ static void il_copy_max (char *dst, const char *src)
 static void il_build_settings (void)
 {
     // Forward port settings can target either direction — advertise the larger range.
-    io_port_cfg_t d_in, d_out;
+    // Zero-initialized: io_port_cfg_t has a const member (port_maxs), so leaving the
+    // objects default-initialized until ioports_cfg() fills them is flagged by Clang.
+    io_port_cfg_t d_in = {0}, d_out = {0};
     ioports_cfg(&d_in,  Port_Digital, Port_Input);
     ioports_cfg(&d_out, Port_Digital, Port_Output);
     // Copy port_maxs out of the stack-local cfg structs into static storage so the
