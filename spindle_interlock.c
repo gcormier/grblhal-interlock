@@ -265,7 +265,7 @@ static void on_report_options (bool newopt)
         prev_on_report_options(newopt);
 
     if (!newopt)
-        report_plugin("Interlock", "0.6");
+        report_plugin("Interlock", "0.7");
 }
 
 // ── settings set/get ───────────────────────────────────────────────────────────
